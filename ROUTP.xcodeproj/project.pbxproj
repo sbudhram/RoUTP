@@ -9,7 +9,7 @@
 /* Begin PBXBuildFile section */
 		146D3CBA1E28BB7D004F5909 /* ROUSession.h in Headers */ = {isa = PBXBuildFile; fileRef = 146D3CB61E28BB7D004F5909 /* ROUSession.h */; };
 		146D3CBB1E28BB7D004F5909 /* ROUSession.m in Sources */ = {isa = PBXBuildFile; fileRef = 146D3CB71E28BB7D004F5909 /* ROUSession.m */; };
-		146D3CBC1E28BB7D004F5909 /* ROUSessionManager.h in Headers */ = {isa = PBXBuildFile; fileRef = 146D3CB81E28BB7D004F5909 /* ROUSessionManager.h */; };
+		146D3CBC1E28BB7D004F5909 /* ROUSessionManager.h in Headers */ = {isa = PBXBuildFile; fileRef = 146D3CB81E28BB7D004F5909 /* ROUSessionManager.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		146D3CBD1E28BB7D004F5909 /* ROUSessionManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 146D3CB91E28BB7D004F5909 /* ROUSessionManager.m */; };
 		146D3CC41E28BB90004F5909 /* ROUDataTypes.h in Headers */ = {isa = PBXBuildFile; fileRef = 146D3CBE1E28BB90004F5909 /* ROUDataTypes.h */; };
 		146D3CC51E28BB90004F5909 /* ROUDataTypes.m in Sources */ = {isa = PBXBuildFile; fileRef = 146D3CBF1E28BB90004F5909 /* ROUDataTypes.m */; };

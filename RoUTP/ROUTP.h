@@ -8,6 +8,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import <ROUTP/ROUSessionManager.h>
+
 //! Project version number for ROUTP.
 FOUNDATION_EXPORT double ROUTPVersionNumber;
 

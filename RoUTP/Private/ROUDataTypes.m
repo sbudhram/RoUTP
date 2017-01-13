@@ -14,40 +14,50 @@
 #endif
 
 #pragma mark - Structures -
-ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t length, NSString *sender, NSArray<NSString*> *recipients){
+ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t length){
     ROUChunkHeader header;
     header.type = type;
     header.flags = flags;
     header.length = length;
     
-    //Checks on senders/recipients
+    return header;
+}
+
+void setSender(ROUChunkHeader *header, NSString *sender, u_int32_t tsn) {
+
     NSCAssert(sender != nil, @"Sender must be specified");
     NSCAssert(sender.length <= ROU_PLAYER_SIZE, @"GKCloudPlayerID must be less than %d characters <sender>", ROU_PLAYER_SIZE);
-
-    NSCAssert(recipients != nil || recipients.count == 0, @"At least one recipient must be specified");
-    NSCAssert(recipients.count < 4, @"No more than 3 recipients allowed");
-    for (NSString *recipient in recipients) {
-        NSCAssert(recipient.length <= ROU_PLAYER_SIZE, @"GKCloudPlayerID must be less than %d characters <recipient>", ROU_PLAYER_SIZE);
-    }
-
-    //Fill in sender/receivers
+    
     const char *sndr = [sender UTF8String];
-    strncpy(header.sender, sndr, sender.length);
+    strncpy(header->sender.playerID, sndr, sender.length);
+    header->sender.tsn = tsn;
+}
 
-    const char *rcpt = [recipients[0] UTF8String];
-    strncpy(header.receiver0, rcpt, recipients[0].length);
+void setRecipient(ROUChunkHeader *header, NSString *recipient, u_int32_t tsn, u_int8_t index) {
+
+    NSCAssert(recipient != nil, @"Recipient must be specified");
+    NSCAssert(recipient.length <= ROU_PLAYER_SIZE, @"GKCloudPlayerID must be less than %d characters <sender>", ROU_PLAYER_SIZE);
     
-    if (recipients.count > 1) {
-        rcpt = [recipients[1] UTF8String];
-        strncpy(header.receiver1, rcpt, recipients[1].length);
+    const char *rcpt = [recipient UTF8String];
+    switch (index) {
+        case 0:
+            strncpy(header->receiver0.playerID, rcpt, recipient.length);
+            header->receiver0.tsn = tsn;
+            break;
+            
+        case 1:
+            strncpy(header->receiver1.playerID, rcpt, recipient.length);
+            header->receiver1.tsn = tsn;
+            break;
+            
+        case 2:
+            strncpy(header->receiver2.playerID, rcpt, recipient.length);
+            header->receiver2.tsn = tsn;
+            break;
+            
+        default:
+            break;
     }
-    
-    if (recipients.count > 2) {
-        rcpt = [recipients[2] UTF8String];
-        strncpy(header.receiver2, rcpt, recipients[2].length);
-    }
-    
-    return header;
 }
 
 ROUChunkHeader ROUChunkHeaderAddFlag(ROUChunkHeader header, uint8_t flag){
@@ -97,13 +107,12 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 
 #pragma mark Data chunk
 @interface ROUDataChunk ()
-@property (nonatomic,readwrite) uint32_t tsn;
 @property (nonatomic,strong) NSData *data;
 @end
 
 @implementation ROUDataChunk
 +(id)chunkWithEncodedChunk:(NSData *)encodedChunk{
-    if (encodedChunk.length <= ROU_HEADER_TSN_SIZE) {
+    if (encodedChunk.length <= ROU_HEADER_SIZE) {
         ROUThrow(@"Encoded data chunk is too short");
     }
     ROUDataChunk *chunk = [self new];
@@ -113,29 +122,24 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
     [encodedChunk getBytes:&header range:NSMakeRange(0, ROU_HEADER_SIZE)];
     chunk.header = header;
 
-    uint32_t tsn;
-    [encodedChunk getBytes:&tsn range:NSMakeRange(ROU_HEADER_SIZE, sizeof(uint32_t))];
-    chunk.tsn = tsn;
-    
     return chunk;
 }
-+(id)chunkWithData:(NSData *)data TSN:(uint32_t)tsn sender:(NSString*)sender recipients:(NSArray<NSString*>*)recipients {
-    if (data.length > UINT16_MAX-8) {
-        ROUThrow(@"Data in chunk may not be longer than %lu bytes",UINT16_MAX - ROU_HEADER_TSN_SIZE);
++(id)chunkWithData:(NSData *)data  {
+    if (data.length > UINT16_MAX - ROU_HEADER_SIZE) {
+        ROUThrow(@"Data in chunk may not be longer than %lu bytes", UINT16_MAX - ROU_HEADER_SIZE);
     }
     ROUDataChunk *chunk = [self new];
-    chunk.header = ROUChunkHeaderMake(ROUChunkTypeData, 0, data.length + ROU_HEADER_TSN_SIZE, sender, recipients);
-    chunk.tsn = tsn;
+    chunk.header = ROUChunkHeaderMake(ROUChunkTypeData, 0, data.length + ROU_HEADER_SIZE);
     chunk.data = data;
     return chunk;
 }
 
-+(id)unreliableChunkWithData:(NSData *)data sender:(NSString*)sender recipients:(NSArray<NSString*>*)recipients {
-    if (data.length > UINT16_MAX-ROU_HEADER_TSN_SIZE) {
-        ROUThrow(@"Data in chunk may not be longer than %lu bytes", UINT16_MAX - ROU_HEADER_TSN_SIZE);
++(id)unreliableChunkWithData:(NSData *)data {
+    if (data.length > UINT16_MAX-ROU_HEADER_SIZE) {
+        ROUThrow(@"Data in chunk may not be longer than %lu bytes", UINT16_MAX - ROU_HEADER_SIZE);
     }
     ROUDataChunk *chunk = [self new];
-    chunk.header = ROUChunkHeaderMake(ROUChunkUnreliable, 0, data.length + ROU_HEADER_TSN_SIZE, sender, recipients);
+    chunk.header = ROUChunkHeaderMake(ROUChunkUnreliable, 0, data.length + ROU_HEADER_SIZE);
     chunk.data = data;
     return chunk;
 }
@@ -146,10 +150,9 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
         return _encodedChunk;
     }
     NSAssert(nil != self.data, @"");
-    NSMutableData *chunk = [NSMutableData dataWithCapacity:ROU_HEADER_TSN_SIZE + self.data.length];
+    NSMutableData *chunk = [NSMutableData dataWithCapacity:ROU_HEADER_SIZE + self.data.length];
     ROUChunkHeader header = self.header;
     [chunk appendBytes:&header length:ROU_HEADER_SIZE];
-    [chunk appendBytes:&_tsn length:sizeof(_tsn)];
     [chunk appendData:_data];
     return chunk;
 }
@@ -159,7 +162,7 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
     }
     NSAssert(nil != self.encodedChunk, @"");
     return [self.encodedChunk
-            subdataWithRange:NSMakeRange(ROU_HEADER_TSN_SIZE, self.encodedChunk.length-ROU_HEADER_TSN_SIZE)];
+            subdataWithRange:NSMakeRange(ROU_HEADER_SIZE, self.encodedChunk.length-ROU_HEADER_SIZE)];
 }
 @end
 
@@ -168,7 +171,6 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 
 #pragma mark Ack chunk
 @interface ROUAckChunk ()
-@property (nonatomic,readwrite) uint32_t tsn;
 @end
 
 @implementation ROUAckChunk{
@@ -177,13 +179,12 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 
 +(id)chunkWithTSN:(uint32_t)tsn{
     ROUAckChunk *chunk = [self new];
-    chunk.tsn = tsn;
     
     return chunk;
 }
 
 +(id)chunkWithEncodedChunk:(NSData *)encodedChunk{
-    if (encodedChunk.length < ROU_HEADER_TSN_SIZE) {
+    if (encodedChunk.length < ROU_HEADER_SIZE) {
         ROUThrow(@"Encoded ack chunk is too short");
     }
     ROUAckChunk *chunk = [self new];
@@ -192,17 +193,13 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
     ROUChunkHeader header;
     [encodedChunk getBytes:&header range:NSMakeRange(0, ROU_HEADER_SIZE)];
     
-    uint32_t tsn;
-    [encodedChunk getBytes:&tsn range:NSMakeRange(ROU_HEADER_SIZE, sizeof(u_int32_t))];
-    chunk.tsn = tsn;
-    
     if (header.flags & ROUAckFlagsHasSegments) {
-        NSUInteger currentPosition = ROU_HEADER_TSN_SIZE;
+        NSUInteger currentPosition = ROU_HEADER_SIZE;
         while (currentPosition + 4 <= header.length) {
             ROUAckSegmentShift segmentShift;
             [encodedChunk getBytes:&segmentShift range:NSMakeRange(currentPosition, 4)];
             NSRange range =
-                NSMakeRange(tsn+segmentShift.start,
+                NSMakeRange(header.sender.tsn+segmentShift.start,
                             segmentShift.end - segmentShift.start + 1);
             [chunk->_segmentsIndexSet
                 addIndexesInRange:range];
@@ -227,33 +224,33 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
             self.header.type,
             self.header.flags,
             self.header.length,
-            _tsn,
+            self.header.sender.tsn,
             _segmentsIndexSet,
             _encodedChunk];
 }
 
 -(void)addSegmentFrom:(uint32_t)fromTSN to:(uint32_t)toTSN{
-    NSAssert(fromTSN > self.tsn + 1,
+    NSAssert(fromTSN > self.header.sender.tsn + 1,
              @"tsn=%u fromTSN=%u toTSN=%u",
-             self.tsn,
+             self.header.sender.tsn,
              fromTSN,
              toTSN);
     NSAssert(toTSN >= fromTSN,
              @"tsn=%u fromTSN=%u toTSN=%u",
-             self.tsn,
+             self.header.sender.tsn,
              fromTSN,
              toTSN);
     [self addSegmentWithRange:NSMakeRange(fromTSN, toTSN-fromTSN+1)];
 }
 
 -(void)addSegmentWithRange:(NSRange)range{
-    NSAssert(range.location > self.tsn + 1,
+    NSAssert(range.location > self.header.sender.tsn + 1,
              @"tsn=%u %@",
-             self.tsn,
+             self.header.sender.tsn,
              NSStringFromRange(range));
     NSAssert(range.length > 0,
              @"tsn=%u %@",
-             self.tsn,
+             self.header.sender.tsn,
              NSStringFromRange(range));
     _encodedChunk = nil;
     [_segmentsIndexSet addIndexesInRange:range];
@@ -265,11 +262,11 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 }
 
 -(NSIndexSet *)missedIndexSet{
-    if (_segmentsIndexSet.firstIndex <= self.tsn + 1) {
+    if (_segmentsIndexSet.firstIndex <= self.header.sender.tsn + 1) {
         ROUThrow(@"In ack chunkTSN should be lower than segments.\n%@",self);
     }
     NSMutableIndexSet *missed = [NSMutableIndexSet indexSet];
-    __block NSUInteger start = self.tsn + 1;
+    __block NSUInteger start = self.header.sender.tsn + 1;
     [_segmentsIndexSet enumerateRangesUsingBlock:^(NSRange range, BOOL *stop) {
         NSUInteger end = range.location - 1;
         [missed addIndexesInRange:NSMakeRange(start, end-start+1)];
@@ -285,12 +282,11 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
     ROUChunkHeader header = self.header;
     NSMutableData *encodedChunk = [NSMutableData dataWithCapacity:header.length];
     [encodedChunk appendBytes:&header length:ROU_HEADER_SIZE];
-    [encodedChunk appendBytes:&_tsn length:sizeof(_tsn)];
     NSAssert(4 == sizeof(ROUAckSegmentShift), @"ROUAckSegmentShift size should be 4");
     [_segmentsIndexSet enumerateRangesUsingBlock:^(NSRange range, BOOL *stop) {
         ROUAckSegmentShift segment =
-            ROUAckSegmentShiftMake(range.location-_tsn,
-                                   range.location-_tsn+range.length-1);
+            ROUAckSegmentShiftMake(range.location-self.header.sender.tsn,
+                                   range.location-self.header.sender.tsn+range.length-1);
         [encodedChunk appendBytes:&segment length:4];
     }];
     return encodedChunk;

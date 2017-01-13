@@ -11,12 +11,11 @@
 
 #define ROU_PLAYER_SIZE         64  //Size of a GKCloudPlayerID
 #define ROU_HEADER_SIZE         (sizeof(ROUChunkHeader))
-#define ROU_HEADER_TSN_SIZE     (ROU_HEADER_SIZE + sizeof(uint32_t))    //Size of the tsn variable
 
 #pragma mark - Structures -
 typedef NS_ENUM(uint8_t, ROUChunkType){
     ROUChunkTypeData = 0,
-    ROUCHunkTypeAck = 1,
+    ROUChunkTypeAck = 1,
     ROUChunkUnreliable = 2
 };
 typedef NS_OPTIONS(uint8_t, ROUAckFlags){
@@ -25,16 +24,21 @@ typedef NS_OPTIONS(uint8_t, ROUAckFlags){
 };
 
 typedef struct {
+    char playerID[ROU_PLAYER_SIZE];
+    u_int32_t tsn;
+} Player;
+
+typedef struct {
     uint8_t type;
     uint8_t flags;
-    char sender[ROU_PLAYER_SIZE];
-    char receiver0[ROU_PLAYER_SIZE];
-    char receiver1[ROU_PLAYER_SIZE];
-    char receiver2[ROU_PLAYER_SIZE];
+    Player sender;
+    Player receiver0;
+    Player receiver1;
+    Player receiver2;
     uint16_t length;
 } ROUChunkHeader;
 
-ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t length, NSString *sender, NSArray<NSString*> *recipients);
+ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t length);
 ROUChunkHeader ROUChunkHeaderAddFlag(ROUChunkHeader header, uint8_t flag);
 
 typedef struct {
@@ -62,7 +66,6 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
  */
 +(id)chunkWithData:(NSData *)data TSN:(uint32_t)tsn sender:(NSString*)sender recipients:(NSArray<NSString*>*)recipients;
 +(id)unreliableChunkWithData:(NSData *)data sender:(NSString*)sender recipients:(NSArray<NSString*>*)recipients;
-@property (nonatomic,readonly) uint32_t tsn;
 @property (nonatomic,readonly) NSData *data;
 @end
 
@@ -78,7 +81,6 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 -(void)addSegmentWithRange:(NSRange)range;
 -(NSIndexSet *)segmentsIndexSet;
 -(NSIndexSet *)missedIndexSet;
-@property (nonatomic,readonly) uint32_t tsn;
 @end
 
 #pragma mark - Categories -

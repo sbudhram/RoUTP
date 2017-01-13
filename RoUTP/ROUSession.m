@@ -33,15 +33,20 @@
     _rcvAckTimerInterval = ROU_RCV_ACK_TIMER_INTERVAL;
     _rcvAckTimerDelayOnMissed = ROU_RCV_ACK_TIMER_DELAY_ON_MISSED;
     _sndResendTimeout = ROU_SND_RESEND_TIMEOUT;
+    _rcvAckTimerTimeout = ROU_RCV_ACK_TIMER_TIMEOUT;
+    
+    [self resetAckTimeoutTimer];
     
 	return self;
 }
 
 -(void)dealloc{
+
     rou_dispatch_release(_queue);
     if (nil != _delegateQueue) {
         rou_dispatch_release(_delegateQueue);
     }
+    
 }
 
 #pragma mark Main API
@@ -52,11 +57,23 @@
 }
 
 #pragma mark └ Input data
--(void)sendData:(NSData *)data{
-    dispatch_async(self.queue, ^{
-        [self scheduleAckTimer];
-        [self input_sendData:data];
-    });
+-(void)sendData:(NSData *)data from:(NSString*)sender to:(NSArray<NSString*>*)recipients reliably:(BOOL)reliable immediately:(BOOL)immediately {
+
+    void (^send)(void) = ^{
+        if (reliable) {
+            [self scheduleAckTimer];
+        }
+        [self input_sendData:data from:sender to:recipients reliably:reliable immediately:immediately];
+    };
+    
+    if (immediately) {
+        send();
+    }
+    else {
+        dispatch_async(self.queue, ^{
+            send();
+        });
+    }
 }
 
 -(void)receiveData:(NSData *)data{
@@ -85,11 +102,21 @@
     });
 }
 
--(void)sendChunkToTransport:(ROUChunk *)chunk{
+-(void)sendChunkToTransport:(ROUChunk *)chunk {
+    [self sendChunkToTransport:chunk immediately:NO];
+}
+
+-(void)sendChunkToTransport:(ROUChunk *)chunk immediately:(BOOL)immediately {
     if (self.delegate) {
-        dispatch_async(self.delegateQueue, ^{
+        
+        if (immediately) {
             [self.delegate session:self preparedDataForSending:chunk.encodedChunk];
-        });
+        }
+        else {
+            dispatch_async(self.delegateQueue, ^{
+                [self.delegate session:self preparedDataForSending:chunk.encodedChunk];
+            });
+        }
     }
 }
 
@@ -102,20 +129,34 @@
 }
 
 #pragma mark Sending
--(void)input_sendData:(NSData *)data{
+-(void)input_sendData:(NSData *)data from:(NSString*)sender to:(NSArray<NSString*>*)recipients reliably:(BOOL)reliable immediately:(BOOL)immediately {
     if (UINT32_MAX == _sndNextTSN) {
         ROUThrow(@"RoUTP currently supports only sessions no longer than %lu packets.",
                  NSUIntegerMax);
     }
-    uint32_t tsn = _sndNextTSN++;
-    ROUSndDataChunk *chunk = [ROUSndDataChunk chunkWithData:data TSN:tsn];
+    if (reliable) {
+        uint32_t tsn = _sndNextTSN++;
+        ROUSndDataChunk *chunk = [ROUSndDataChunk chunkWithData:data TSN:tsn sender:sender recipients:recipients];
+        
+        [self addSndDataChunk:chunk];
+        chunk.lastSendDate = [NSDate date];
+        
+        [self sendChunkToTransport:chunk immediately:immediately];
+    }
 
-    [self addSndDataChunk:chunk];
-    chunk.lastSendDate = [NSDate date];
-    [self sendChunkToTransport:chunk];
+    else {
+        //Bypass reliability checks
+        ROUSndDataChunk *chunk = [ROUSndDataChunk unreliableChunkWithData:data sender:sender recipients:recipients];
+        [self sendChunkToTransport:chunk immediately:immediately];
+    }
+
 }
 
 -(void)processAckChunk:(ROUAckChunk *)ackChunk{
+    
+    //Reset the acknowlegement timeout timer
+    [self performSelectorOnMainThread:@selector(resetAckTimeoutTimer) withObject:nil waitUntilDone:NO];
+    
     [self removeSndDataChunksUpTo:ackChunk.tsn];
     [self removeSndDataChunksAtIndexes:ackChunk.segmentsIndexSet];
     
@@ -154,7 +195,7 @@
     if (self.sndDataChunkIndexSet.count == 0) {
         return;
     }
-    uint32_t firstIndex = self.sndDataChunkIndexSet.firstIndex;
+    NSUInteger firstIndex = self.sndDataChunkIndexSet.firstIndex;
     if (beforeTSN < firstIndex) return;
     NSRange range = NSMakeRange(firstIndex, beforeTSN - firstIndex + 1);
     [self.sndDataChunkIndexSet
@@ -193,6 +234,10 @@
             case ROUCHunkTypeAck:
                 [self processAckChunk:[ROUAckChunk chunkWithEncodedChunk:encodedChunk]];
                 break;
+            case ROUChunkUnreliable:
+                [self informDelegateOnReceivedChunk:[ROUDataChunk chunkWithEncodedChunk:encodedChunk]];
+                break;
+                
             default:
                 break;
         }
@@ -201,6 +246,7 @@
 }
 
 -(void)processDataChunk:(ROUDataChunk *)chunk{
+    
     if (chunk.tsn == _rcvNextTSN) {
         ++_rcvNextTSN;
         [self informDelegateOnReceivedChunk:chunk];
@@ -216,7 +262,7 @@
                 readyChunksRange = range;
             }];
             _rcvNextTSN += readyChunksRange.length;
-            for (uint32_t tsn = readyChunksRange.location;
+            for (NSUInteger tsn = readyChunksRange.location;
                  tsn<_rcvNextTSN;
                  ++tsn)
             {
@@ -226,6 +272,7 @@
             [self removeRcvDataChunksInRange:readyChunksRange];
         }
     }else if (chunk.tsn > _rcvNextTSN){
+
         [self addRcvDataChunk:chunk];
         if (self.rcvHasMissedDataChunks) {
             if (!self.rcvMissedPacketsFoundAfterLastPacket) {
@@ -256,7 +303,7 @@
 }
 
 -(void)removeRcvDataChunksInRange:(NSRange)range{
-    for (uint32_t tsn = range.location; tsn < range.location + range.length; ++tsn){
+    for (NSUInteger tsn = range.location; tsn < range.location + range.length; ++tsn){
         [self.rcvDataChunks removeObjectForKey:@(tsn)];
     }
     [self.rcvDataChunkIndexSet removeIndexesInRange:range];
@@ -304,6 +351,33 @@
 
 -(void)ackTimerFired:(ROUSerialQueueTimer *)timer{
     [self sendAck];
+}
+
+-(void)invalidateAckTimeoutTimer {
+    
+    if (_ackTimeoutTimer) {
+        [_ackTimeoutTimer invalidate];
+        self.ackTimeoutTimer = nil;
+    }
+    
+}
+
+-(void)resetAckTimeoutTimer {
+    [self invalidateAckTimeoutTimer];
+    
+    self.ackTimeoutTimer = [NSTimer scheduledTimerWithTimeInterval:_rcvAckTimerTimeout target:self selector:@selector(invalidateConnection) userInfo:nil repeats:NO];
+    
+}
+
+-(void)invalidateConnection {
+    if (_delegate) {
+        [_delegate invalidConnectionDetectedForSession:self];
+    }
+    
+}
+
+-(void)end {
+    [self invalidateAckTimeoutTimer];
 }
 
 @end

@@ -13,6 +13,7 @@
 @protocol ROUSessionDelegate <NSObject>
 -(void)session:(ROUSession *)session receivedData:(NSData *)data;
 -(void)session:(ROUSession *)session preparedDataForSending:(NSData *)data;
+-(void)invalidConnectionDetectedForSession:(ROUSession *)session;
 @end
 
 @interface ROUSession : NSObject
@@ -21,9 +22,11 @@
  session earlier.
  */
 -(void)start;
--(void)sendData:(NSData *)data;
+-(void)sendData:(NSData *)data from:(NSString*)sender to:(NSArray<NSString*>*)recipients reliably:(BOOL)reliable immediately:(BOOL)immediately;
 -(void)receiveData:(NSData *)data;
 -(void)setDelegate:(id<ROUSessionDelegate>)delegate;
+-(void)end;
+@property (nonatomic) NSString *playerID;
 /**
  @queue The queue where the delegate methods will be dispatched.
  The queue is retained by session.

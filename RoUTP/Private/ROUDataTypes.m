@@ -14,7 +14,7 @@
 #endif
 
 #pragma mark - Structures -
-ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t length){
+ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t length) {
     ROUChunkHeader header;
     header.type = type;
     header.flags = flags;
@@ -91,18 +91,63 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 @end
 
 @implementation ROUChunk
+
 +(id)chunkWithEncodedChunk:(NSData *)encodedChunk{
     ROUThrow(@"+[%@ %@] not implemented",
              NSStringFromClass(self),
              NSStringFromSelector(_cmd));
     return nil;
 }
+
 -(NSData *)encodedChunk{
     ROUThrow(@"-[%@ %@] not implemented",
              NSStringFromClass([self class]),
              NSStringFromSelector(_cmd));
     return nil;
 }
+
+-(NSString*)sender {
+    return [NSString stringWithUTF8String:_header.sender.playerID];
+}
+
+-(NSString*)receiver0 {
+    return [NSString stringWithUTF8String:_header.receiver0.playerID];
+}
+
+-(NSString*)receiver1 {
+    return [NSString stringWithUTF8String:_header.receiver1.playerID];
+}
+
+-(NSString*)receiver2 {
+    return [NSString stringWithUTF8String:_header.receiver2.playerID];
+}
+
+-(NSNumber*)tsnForPlayer:(NSString*)player {
+
+    NSString *rcpt = [NSString stringWithUTF8String:_header.receiver0.playerID];
+    if ([rcpt isEqualToString:player]) {
+        return @(_header.receiver0.tsn);
+    }
+    
+    rcpt = [NSString stringWithUTF8String:_header.receiver1.playerID];
+    if ([rcpt isEqualToString:player]) {
+        return @(_header.receiver1.tsn);
+    }
+    
+    rcpt = [NSString stringWithUTF8String:_header.receiver2.playerID];
+    if ([rcpt isEqualToString:player]) {
+        return @(_header.receiver2.tsn);
+    }
+    
+    rcpt = [NSString stringWithUTF8String:_header.sender.playerID];
+    if ([rcpt isEqualToString:player]) {
+        return @(_header.sender.tsn);
+    }
+    
+    return nil;
+
+}
+
 @end
 
 #pragma mark Data chunk
@@ -124,7 +169,7 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 
     return chunk;
 }
-+(id)chunkWithData:(NSData *)data  {
++(id)chunkWithData:(NSData *)data {
     if (data.length > UINT16_MAX - ROU_HEADER_SIZE) {
         ROUThrow(@"Data in chunk may not be longer than %lu bytes", UINT16_MAX - ROU_HEADER_SIZE);
     }
@@ -133,17 +178,6 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
     chunk.data = data;
     return chunk;
 }
-
-+(id)unreliableChunkWithData:(NSData *)data {
-    if (data.length > UINT16_MAX-ROU_HEADER_SIZE) {
-        ROUThrow(@"Data in chunk may not be longer than %lu bytes", UINT16_MAX - ROU_HEADER_SIZE);
-    }
-    ROUDataChunk *chunk = [self new];
-    chunk.header = ROUChunkHeaderMake(ROUChunkUnreliable, 0, data.length + ROU_HEADER_SIZE);
-    chunk.data = data;
-    return chunk;
-}
-
 
 -(NSData *)encodedChunk{
     if (nil != self->_encodedChunk) {
@@ -177,8 +211,9 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
     NSMutableIndexSet *_segmentsIndexSet;
 }
 
-+(id)chunkWithTSN:(uint32_t)tsn{
++(id)chunk{
     ROUAckChunk *chunk = [self new];
+    ROUChunkHeaderMake(ROUChunkTypeAck, 0, 0);
     
     return chunk;
 }

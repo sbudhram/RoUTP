@@ -17,16 +17,20 @@
 }
 
 #pragma mark Init
--(id)init{
+-(id)initWithLocalPlayer:(NSString*)localPlayer sender:(NSString*)sender {
     self = [super init];
     if (nil == self) return nil;
     
-	_sndNextTSN = 1;
+    self.localPlayer = localPlayer;
+    self.sender = sender;
+    
+    _sendNextTSNpp = [NSMutableDictionary dictionaryWithCapacity:3];
+    
     _rcvNextTSN = 1;
     _rcvDataChunks = [NSMutableDictionary dictionaryWithCapacity:50];
     _rcvDataChunkIndexSet = [NSMutableIndexSet indexSet];
-    _sndDataChunks = [NSMutableDictionary dictionaryWithCapacity:50];
-    _sndDataChunkIndexSet = [NSMutableIndexSet indexSet];
+    _sndDataChunks = [NSMutableDictionary dictionaryWithCapacity:3];
+    _sndDataChunkIndexSet = [NSMutableDictionary dictionaryWithCapacity:3];
     
     _queue = dispatch_queue_create("com.rabovik.routp.session",NULL);
     
@@ -130,25 +134,39 @@
 
 #pragma mark Sending
 -(void)input_sendData:(NSData *)data from:(NSString*)sender to:(NSArray<NSString*>*)recipients reliably:(BOOL)reliable immediately:(BOOL)immediately {
-    if (UINT32_MAX == _sndNextTSN) {
-        ROUThrow(@"RoUTP currently supports only sessions no longer than %lu packets.",
-                 NSUIntegerMax);
-    }
-    if (reliable) {
-        uint32_t tsn = _sndNextTSN++;
-        ROUSndDataChunk *chunk = [ROUSndDataChunk chunkWithData:data TSN:tsn sender:sender recipients:recipients];
+
+    ROUSndDataChunk *chunk = [ROUSndDataChunk chunkWithData:data];
+
+    ROUChunkHeader header = chunk.header;
+
+    setSender(&(header), sender, 0);
+
+    for (int i = 0; i < recipients.count; i++) {
+        NSString *recipient = recipients[i];
+        if (_sendNextTSNpp[recipient] == nil) {
+            _sendNextTSNpp[recipient] = @(0);
+        }
         
-        [self addSndDataChunk:chunk];
+        setRecipient(&header, recipient, [_sendNextTSNpp[recipient] intValue], i);
+
+        if (reliable) {
+            //Increment the TSN count for this recipient
+            _sendNextTSNpp[recipient] = @([_sendNextTSNpp[recipient] intValue] + 1);
+        }
+    }
+    
+    if (reliable) {
+        [self addSndDataChunk:chunk forRecipients:recipients];
         chunk.lastSendDate = [NSDate date];
         
-        [self sendChunkToTransport:chunk immediately:immediately];
     }
-
     else {
-        //Bypass reliability checks
-        ROUSndDataChunk *chunk = [ROUSndDataChunk unreliableChunkWithData:data sender:sender recipients:recipients];
-        [self sendChunkToTransport:chunk immediately:immediately];
+        //Send it unreliably - no attempt will be made to validate on client end.
+        header.type = ROUChunkUnreliable;
     }
+    
+    
+    [self sendChunkToTransport:chunk immediately:immediately];
 
 }
 
@@ -157,26 +175,30 @@
     //Reset the acknowlegement timeout timer
     [self performSelectorOnMainThread:@selector(resetAckTimeoutTimer) withObject:nil waitUntilDone:NO];
     
-    [self removeSndDataChunksUpTo:ackChunk.tsn];
-    [self removeSndDataChunksAtIndexes:ackChunk.segmentsIndexSet];
+    //NEXT:  Iterate on all chunks that still need to be sent.
+    // If any of the recipients match this recipient, with the given tsn or below, 'mark' that recipient as received.
+    // If that chunk has no remaining recipients, remove the chunk.
+    NSString *sender = [ackChunk sender];
+    NSNumber *tsnNum = [ackChunk tsnForPlayer:sender];
+    NSAssert(tsnNum != nil, @"TSN for sender cannot be nil");
+    uint32_t tsn = [tsnNum intValue];
     
-    NSMutableArray *chunksToResend = [NSMutableArray array];
+    [self removeSndDataChunksUpTo:tsn forRecipient:sender];
+    [self removeSndDataChunksAtIndexes:ackChunk.segmentsIndexSet forRecipient:sender];
+    
+    NSMutableSet *chunksToResend = [NSMutableSet set];
     NSDate *nowDate = [NSDate date];
-    [self.sndDataChunkIndexSet enumerateIndexesUsingBlock:^(NSUInteger tsn, BOOL *stop){
-        ROUSndDataChunk *sndChunk = self.sndDataChunks[@(tsn)];
-        // resend all missed which were net present earlier
-        if ([ackChunk.missedIndexSet containsIndex:tsn] && 0 == sndChunk.resendCount) {
-            [chunksToResend addObject:sndChunk];
-            return;
-        }
-        // resend all older than sndResendTimeout
-        if ([nowDate timeIntervalSinceDate:sndChunk.lastSendDate]
-            > self.sndResendTimeout)
-        {
-            [chunksToResend addObject:sndChunk];
-            return;
-        }
-    }];
+    
+    for (NSString *key in _sndDataChunkIndexSet) {
+        NSMutableIndexSet *sndDataChunkIndexSet = _sndDataChunkIndexSet[key];
+        [sndDataChunkIndexSet enumerateIndexesUsingBlock:^(NSUInteger tsn, BOOL *stop){
+            ROUSndDataChunk *sndChunk = self.sndDataChunks[@(tsn)];
+            // resend all that haven't been resent, and those older than the reset timeout
+            if ( 0 == sndChunk.resendCount || [nowDate timeIntervalSinceDate:sndChunk.lastSendDate] > self.sndResendTimeout) {
+                [chunksToResend addObject:sndChunk];
+            }
+        }];
+    }
     
     for (ROUSndDataChunk *chunk in chunksToResend) {
         chunk.resendCount = chunk.resendCount + 1;
@@ -186,42 +208,65 @@
     }
 }
 
--(void)addSndDataChunk:(ROUSndDataChunk *)chunk{
-    self.sndDataChunks[@(chunk.tsn)] = chunk;
-    [self.sndDataChunkIndexSet addIndex:chunk.tsn];
+-(void)addSndDataChunk:(ROUSndDataChunk *)chunk forRecipients:(NSArray*)recipients {
+    
+    //Set this chunk for each recipient.  Each recipient will need to acknowledge receipt.
+    for (NSString *recipient in recipients) {
+        
+        NSMutableDictionary *sndChunks = _sndDataChunks[recipient];
+        if (!sndChunks) {
+            sndChunks = [NSMutableDictionary dictionaryWithCapacity:50];
+            _sndDataChunks[recipient] = sndChunks;
+        }
+        NSMutableIndexSet *sndChunkIndexSet = _sndDataChunkIndexSet[recipient];
+        if (!sndChunkIndexSet) {
+            sndChunkIndexSet = [NSMutableIndexSet indexSet];
+            _sndDataChunkIndexSet[recipient] = sndChunkIndexSet;
+        }
+        NSNumber *tsnNum = [chunk tsnForPlayer:recipient];
+        NSAssert(tsnNum != nil, @"Player must have a TSN");
+
+        sndChunks[tsnNum] = chunk;
+        [sndChunkIndexSet addIndex:[tsnNum intValue]];
+        
+    }
 }
 
--(void)removeSndDataChunksUpTo:(uint32_t)beforeTSN{
-    if (self.sndDataChunkIndexSet.count == 0) {
+-(void)removeSndDataChunksUpTo:(uint32_t)beforeTSN forRecipient:(NSString*)recipient {
+    NSMutableIndexSet *sndDataChunkIndexSet = _sndDataChunkIndexSet[recipient];
+    NSMutableDictionary *sndDataChunks = _sndDataChunks[recipient];
+    if (sndDataChunkIndexSet.count == 0) {
         return;
     }
-    NSUInteger firstIndex = self.sndDataChunkIndexSet.firstIndex;
+    
+    NSUInteger firstIndex = sndDataChunkIndexSet.firstIndex;
     if (beforeTSN < firstIndex) return;
     NSRange range = NSMakeRange(firstIndex, beforeTSN - firstIndex + 1);
-    [self.sndDataChunkIndexSet
+    [sndDataChunkIndexSet
      enumerateIndexesInRange:range
      options:0
      usingBlock:^(NSUInteger idx, BOOL *stop) {
-         [self.sndDataChunks removeObjectForKey:@(idx)];
+         [sndDataChunks removeObjectForKey:@(idx)];
      }];
-    [self.sndDataChunkIndexSet removeIndexesInRange:range];
+    [sndDataChunkIndexSet removeIndexesInRange:range];
 }
 
--(void)removeSndDataChunksAtIndexes:(NSIndexSet *)indexes{
+-(void)removeSndDataChunksAtIndexes:(NSIndexSet *)indexes forRecipient:(NSString*)recipient {
+    NSMutableDictionary *sndDataChunks = _sndDataChunks[recipient];
+    NSMutableIndexSet *sndDataChunkIndexSet = _sndDataChunkIndexSet[recipient];
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
-        [self.sndDataChunks removeObjectForKey:@(idx)];
+        [sndDataChunks removeObjectForKey:@(idx)];
     }];
-    [self.sndDataChunkIndexSet removeIndexes:indexes];
+    [sndDataChunkIndexSet removeIndexes:indexes];
 }
 
 #pragma mark Receiving
 -(void)input_receiveData:(NSData *)data{
     NSUInteger packetLength = data.length;
     NSUInteger currentPosition = 0;
-    while (currentPosition + 4 <= packetLength) {
-        NSAssert(4 == sizeof(ROUChunkHeader), @"ROUChunkHeader size should be 4");
+    while (currentPosition + ROU_HEADER_SIZE <= packetLength) {
         ROUChunkHeader header;
-        [data getBytes:&header range:NSMakeRange(currentPosition, 4)];
+        [data getBytes:&header range:NSMakeRange(currentPosition, ROU_HEADER_SIZE)];
         if (currentPosition + header.length > packetLength) {
             ROUThrow(@"Incorrect chunk length");
         }
@@ -231,7 +276,7 @@
             case ROUChunkTypeData:
                 [self processDataChunk:[ROUDataChunk chunkWithEncodedChunk:encodedChunk]];
                 break;
-            case ROUCHunkTypeAck:
+            case ROUChunkTypeAck:
                 [self processAckChunk:[ROUAckChunk chunkWithEncodedChunk:encodedChunk]];
                 break;
             case ROUChunkUnreliable:
@@ -246,8 +291,14 @@
 }
 
 -(void)processDataChunk:(ROUDataChunk *)chunk{
+
+    //Get the TSN associated with this player
+    NSNumber *tsNum = [chunk tsnForPlayer:_localPlayer];
+    NSAssert(tsNum != nil, @"This player must exist as a recipient.");
+
+    uint32_t tsn = [tsNum intValue];
     
-    if (chunk.tsn == _rcvNextTSN) {
+    if (tsn == _rcvNextTSN) {
         ++_rcvNextTSN;
         [self informDelegateOnReceivedChunk:chunk];
         // check if stored chunks are now ready
@@ -271,9 +322,9 @@
             }
             [self removeRcvDataChunksInRange:readyChunksRange];
         }
-    }else if (chunk.tsn > _rcvNextTSN){
+    }else if (tsn > _rcvNextTSN){
 
-        [self addRcvDataChunk:chunk];
+        [self addRcvDataChunk:chunk tsn:tsn];
         if (self.rcvHasMissedDataChunks) {
             if (!self.rcvMissedPacketsFoundAfterLastPacket) {
                 self.rcvAckTimer.fireDate =
@@ -297,9 +348,9 @@
     }
 }
 
--(void)addRcvDataChunk:(ROUDataChunk *)chunk{
-    self.rcvDataChunks[@(chunk.tsn)] = chunk;
-    [self.rcvDataChunkIndexSet addIndex:chunk.tsn];
+-(void)addRcvDataChunk:(ROUDataChunk *)chunk tsn:(uint32_t)tsn {
+    self.rcvDataChunks[@(tsn)] = chunk;
+    [self.rcvDataChunkIndexSet addIndex:tsn];
 }
 
 -(void)removeRcvDataChunksInRange:(NSRange)range{
@@ -323,7 +374,16 @@
 }
 
 -(void)sendAck{
-    ROUAckChunk *chunk = [ROUAckChunk chunkWithTSN:_rcvNextTSN-1];
+    
+    //ACK chunks only use the primary TSN, which is relative to the recipient's TSN (not the sender's global TSN, they have to look that up)
+    ROUAckChunk *chunk = [ROUAckChunk chunk];
+
+    ROUChunkHeader header = chunk.header;
+    
+    //Set the TSN for this player, so the receiver can easily verify who it's from.  Ignore TSN on the sender.
+    setSender(&(header), _localPlayer, _rcvNextTSN-1);
+    setRecipient(&(header), _sender, 0, 0);
+    
     [self.rcvDataChunkIndexSet
      enumerateRangesInRange:
         NSMakeRange(_rcvNextTSN,

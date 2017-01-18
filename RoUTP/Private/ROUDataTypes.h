@@ -6,6 +6,33 @@
 //  Copyright (c) 2013 Yan Rabovik. All rights reserved.
 //
 
+//ORIGINAL MESSAGE:
+// - Sent from 'sender' instance
+// - 'tsn' is the 'global' tsn for the sender
+// - recipients each have their own 'tsn'
+// - chunks are stored, referenced by the global tsn
+
+//RECEIVED MESSAGES:
+// - Received in the instance repesenting the sender
+// - uses only the recipient's tsn for local tracking
+// - sends back acknowledgements in the form of the recipient's tsn.
+// - Uses global tsn variable location, sender/recipient tsn slot not used.
+
+//RECEIVED ACKNOWLEDGEMENTS
+// - TSN received represents receiver's TSN, not the global one.
+// - Need to reverse-lookup based on this TSN to get the correct instances
+// - Modify/remove instances based on whether all players for the message have received it.
+
+//RESENDING
+// - Resend on a specific interval, not just whenever receiving a message.
+
+//Maybe we need to get rid of the individual TSN, and just use the recipient TSN.
+//Have the tracking on the sender be in relation to the individual recipient TSNs.
+//When triaging acknowledgements, just check for the given recipient, remove if needed for theirs.
+//When figuring out whether to resend, just iterate on all, group and send.
+//
+//- Easier to remove players, because we can just delete their respective array entries, and it'll stop trying to resend.
+
 #import <Foundation/Foundation.h>
 #import "ROUPrivate.h"
 
@@ -28,6 +55,8 @@ typedef struct {
     u_int32_t tsn;
 } Player;
 
+//For data sent, TSN is with the receiver.
+//For acknowledgements, TSN is with the sender.
 typedef struct {
     uint8_t type;
     uint8_t flags;
@@ -40,6 +69,8 @@ typedef struct {
 
 ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t length);
 ROUChunkHeader ROUChunkHeaderAddFlag(ROUChunkHeader header, uint8_t flag);
+void setSender(ROUChunkHeader *header, NSString *sender, u_int32_t tsn);
+void setRecipient(ROUChunkHeader *header, NSString *recipient, u_int32_t tsn, u_int8_t index);
 
 typedef struct {
     uint16_t start;
@@ -57,15 +88,16 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 +(id)chunkWithEncodedChunk:(NSData *)encodedChunk;
 @property (nonatomic,readonly) ROUChunkHeader header;
 @property (nonatomic,readonly) NSData *encodedChunk;
+-(NSNumber*)tsnForPlayer:(NSString*)player;
+-(NSString*)sender;
+-(NSString*)receiver0;
+-(NSString*)receiver1;
+-(NSString*)receiver2;
 @end
 
 #pragma mark Data chunk
 @interface ROUDataChunk : ROUChunk
-/**
- @param tsn Transmission Sequence Number
- */
-+(id)chunkWithData:(NSData *)data TSN:(uint32_t)tsn sender:(NSString*)sender recipients:(NSArray<NSString*>*)recipients;
-+(id)unreliableChunkWithData:(NSData *)data sender:(NSString*)sender recipients:(NSArray<NSString*>*)recipients;
++(id)chunkWithData:(NSData *)data;
 @property (nonatomic,readonly) NSData *data;
 @end
 
@@ -76,7 +108,7 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 
 #pragma mark Ack chunk
 @interface ROUAckChunk : ROUChunk
-+(id)chunkWithTSN:(uint32_t)tsn;
++(id)chunk;
 -(void)addSegmentFrom:(uint32_t)fromTSN to:(uint32_t)toTSN;
 -(void)addSegmentWithRange:(NSRange)range;
 -(NSIndexSet *)segmentsIndexSet;

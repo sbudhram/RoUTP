@@ -21,8 +21,10 @@
 -(void)sendChunkToTransport:(ROUChunk *)chunk;
 -(void)informDelegateOnReceivedChunk:(ROUDataChunk *)chunk;
 -(void)sendAck;
-@property (nonatomic) uint32_t sndNextTSN;
 @property (nonatomic) uint32_t rcvNextTSN;
+
+@property (nonatomic) NSMutableDictionary *sendNextTSNpp; //Keys are recipient playerIDs
+
 /**
  @discussion A dictionary of NSData chunks. Keys are NSNumbers holding tsn.
  */
@@ -30,10 +32,10 @@
 @property (nonatomic,strong) NSMutableIndexSet *rcvDataChunkIndexSet;
 @property (nonatomic,readonly) BOOL rcvHasMissedDataChunks;
 /**
- @discussion A dictionary of ROUSndDataChunk objects. Keys are NSNumbers holding tsn.
+ @discussion A dictionary of ROUSndDataChunk objects. Dual-layered - first layer is recipient ID, 2nd layer is Keys are NSNumbers holding tsn.
  */
-@property (nonatomic,strong) NSMutableDictionary *sndDataChunks;
-@property (nonatomic,strong) NSMutableIndexSet *sndDataChunkIndexSet;
+@property (nonatomic,strong)NSMutableDictionary *sndDataChunks;
+@property (nonatomic,strong) NSMutableDictionary *sndDataChunkIndexSet;
 @property (nonatomic,rou_dispatch_property_qualifier) dispatch_queue_t queue;
 @property (nonatomic,weak) id<ROUSessionDelegate> delegate;
 @property (nonatomic,rou_dispatch_property_qualifier) dispatch_queue_t delegateQueue;

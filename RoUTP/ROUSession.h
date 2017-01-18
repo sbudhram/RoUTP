@@ -21,12 +21,15 @@
  @discussion Session automatically starts on first data sent. Use this method to start
  session earlier.
  */
+//Initialize with the local player, and the sender (who is sending to us for this specific session?)
+-(id)initWithLocalPlayer:(NSString*)localPlayer sender:(NSString*)sender;
 -(void)start;
 -(void)sendData:(NSData *)data from:(NSString*)sender to:(NSArray<NSString*>*)recipients reliably:(BOOL)reliable immediately:(BOOL)immediately;
 -(void)receiveData:(NSData *)data;
 -(void)setDelegate:(id<ROUSessionDelegate>)delegate;
 -(void)end;
-@property (nonatomic) NSString *playerID;
+@property (nonatomic) NSString *localPlayer;
+@property (nonatomic) NSString *sender;
 /**
  @queue The queue where the delegate methods will be dispatched.
  The queue is retained by session.

@@ -16,6 +16,20 @@
 @implementation ROUSession{
 }
 
++(ROUChunkHeader)headerForIncomingData:(NSData*)data {
+    
+    NSUInteger packetLength = data.length;
+    NSUInteger currentPosition = 0;
+    ROUChunkHeader header;
+    [data getBytes:&header range:NSMakeRange(currentPosition, ROU_HEADER_SIZE)];
+    if (currentPosition + header.length > packetLength) {
+        ROUThrow(@"Incorrect chunk length");
+    }
+
+    return header;
+    
+}
+
 #pragma mark Init
 -(id)initWithLocalPlayer:(NSString*)localPlayer sender:(NSString*)sender {
     self = [super init];
@@ -178,7 +192,7 @@
     //NEXT:  Iterate on all chunks that still need to be sent.
     // If any of the recipients match this recipient, with the given tsn or below, 'mark' that recipient as received.
     // If that chunk has no remaining recipients, remove the chunk.
-    NSString *sender = [ackChunk sender];
+    NSString *sender = senderForHeader(ackChunk.header);
     NSNumber *tsnNum = [ackChunk tsnForPlayer:sender];
     NSAssert(tsnNum != nil, @"TSN for sender cannot be nil");
     uint32_t tsn = [tsnNum intValue];
@@ -434,6 +448,15 @@
         [_delegate invalidConnectionDetectedForSession:self];
     }
     
+}
+
+-(void)removePlayer:(NSString*)player {
+    
+    //Remove entries for this player in objects tracking their data packets
+    [_sndDataChunkIndexSet removeObjectForKey:player];
+    [_sndDataChunks removeObjectForKey:player];
+    [_sendNextTSNpp removeObjectForKey:player];
+
 }
 
 -(void)end {

@@ -16,8 +16,7 @@
 -(void)manager:(ROUSessionManager *)manager receivedData:(NSData *)data fromRecipient:(NSString*)recipient;
 
 //Use to actually send your data out, after ROUSessionManager has prepared it for sending.
-//If you have no choice, you can send this to everyone; those not in the recipient list will not process it.
--(void)manager:(ROUSessionManager *)manager preparedDataForSending:(NSData *)data toRecipients:(NSArray<NSString*>*)recipients;
+-(void)manager:(ROUSessionManager *)manager preparedDataForSending:(NSData *)data;
 
 //If we don't receive an acknowledgment of data received from this player for a set period of time, this will fire.
 -(void)invalidConnectionDetectedForPlayer:(NSString*)player;
@@ -26,10 +25,13 @@
 
 @interface ROUSessionManager : NSObject
 
+@property (nonatomic, weak) id<ROUSessionManagerDelegate> delegate;
+@property (nonatomic, copy) NSString *localPlayerID;
+
 + (ROUSessionManager*)sharedManager;
 
 //Reset to the initial state.  You must set the sender and recipients after calling this.
-- (void)reset;
+- (void)resetWithLocalPlayerID:(NSString*)localPlayerID;
 
 //Add the sender (the local player)
 - (void)addSender:(NSString*)sender;

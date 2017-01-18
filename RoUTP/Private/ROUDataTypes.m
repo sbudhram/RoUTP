@@ -60,6 +60,11 @@ void setRecipient(ROUChunkHeader *header, NSString *recipient, u_int32_t tsn, u_
     }
 }
 
+NS_RETURNS_RETAINED NSString *senderForHeader(ROUChunkHeader header) {
+    return [NSString stringWithUTF8String:header.sender.playerID];
+}
+
+
 ROUChunkHeader ROUChunkHeaderAddFlag(ROUChunkHeader header, uint8_t flag){
     ROUChunkHeader newHeader = header;
     newHeader.flags = header.flags | flag;
@@ -104,22 +109,6 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
              NSStringFromClass([self class]),
              NSStringFromSelector(_cmd));
     return nil;
-}
-
--(NSString*)sender {
-    return [NSString stringWithUTF8String:_header.sender.playerID];
-}
-
--(NSString*)receiver0 {
-    return [NSString stringWithUTF8String:_header.receiver0.playerID];
-}
-
--(NSString*)receiver1 {
-    return [NSString stringWithUTF8String:_header.receiver1.playerID];
-}
-
--(NSString*)receiver2 {
-    return [NSString stringWithUTF8String:_header.receiver2.playerID];
 }
 
 -(NSNumber*)tsnForPlayer:(NSString*)player {

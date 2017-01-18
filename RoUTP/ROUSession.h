@@ -7,6 +7,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "ROUDataTypes.h"
 
 @class ROUSession;
 
@@ -22,10 +23,12 @@
  session earlier.
  */
 //Initialize with the local player, and the sender (who is sending to us for this specific session?)
++(ROUChunkHeader)headerForIncomingData:(NSData*)data;
 -(id)initWithLocalPlayer:(NSString*)localPlayer sender:(NSString*)sender;
 -(void)start;
 -(void)sendData:(NSData *)data from:(NSString*)sender to:(NSArray<NSString*>*)recipients reliably:(BOOL)reliable immediately:(BOOL)immediately;
 -(void)receiveData:(NSData *)data;
+-(void)removePlayer:(NSString*)player;
 -(void)setDelegate:(id<ROUSessionDelegate>)delegate;
 -(void)end;
 @property (nonatomic) NSString *localPlayer;

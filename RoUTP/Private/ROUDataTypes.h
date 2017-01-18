@@ -71,6 +71,7 @@ ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t len
 ROUChunkHeader ROUChunkHeaderAddFlag(ROUChunkHeader header, uint8_t flag);
 void setSender(ROUChunkHeader *header, NSString *sender, u_int32_t tsn);
 void setRecipient(ROUChunkHeader *header, NSString *recipient, u_int32_t tsn, u_int8_t index);
+NS_RETURNS_RETAINED NSString *senderForHeader(ROUChunkHeader header);
 
 typedef struct {
     uint16_t start;
@@ -89,10 +90,6 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 @property (nonatomic,readonly) ROUChunkHeader header;
 @property (nonatomic,readonly) NSData *encodedChunk;
 -(NSNumber*)tsnForPlayer:(NSString*)player;
--(NSString*)sender;
--(NSString*)receiver0;
--(NSString*)receiver1;
--(NSString*)receiver2;
 @end
 
 #pragma mark Data chunk

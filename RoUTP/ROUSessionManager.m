@@ -46,17 +46,17 @@ static ROUSessionManager *sharedROUManager = NULL;
     _rouSender = nil;
     self.localPlayerID = localPlayerID;
     
-}
-
-- (void)addSender:(NSString*)sender {
     //This object is used to send out all data to recipients, process acknowledgement receipts, and re-send data as needed
     ROUSession *session = [[ROUSession alloc] initWithLocalPlayer:_localPlayerID sender:nil];
+    [session setDelegate:self];
     _rouSender = session;
+    
 }
 
 - (void)addRecipient:(NSString*)recipient {
     //These objects are used exclusively to receive data and send back the corresponding acknowledgement receipts
     ROUSession *session = [[ROUSession alloc] initWithLocalPlayer:_localPlayerID sender:recipient];
+    [session setDelegate:self];
     _rouRecipients[recipient] = session;
 }
 

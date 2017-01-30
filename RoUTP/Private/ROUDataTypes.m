@@ -23,43 +23,6 @@ ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t len
     return header;
 }
 
-void setSender(ROUChunkHeader *header, NSString *sender, u_int32_t tsn) {
-
-    NSCAssert(sender != nil, @"Sender must be specified");
-    NSCAssert(sender.length <= ROU_PLAYER_SIZE, @"GKCloudPlayerID must be less than %d characters <sender>", ROU_PLAYER_SIZE);
-    
-    const char *sndr = [sender UTF8String];
-    strncpy(header->sender.playerID, sndr, sender.length);
-    header->sender.tsn = tsn;
-}
-
-void setRecipient(ROUChunkHeader *header, NSString *recipient, u_int32_t tsn, u_int8_t index) {
-
-    NSCAssert(recipient != nil, @"Recipient must be specified");
-    NSCAssert(recipient.length <= ROU_PLAYER_SIZE, @"GKCloudPlayerID must be less than %d characters <sender>", ROU_PLAYER_SIZE);
-    
-    const char *rcpt = [recipient UTF8String];
-    switch (index) {
-        case 0:
-            strncpy(header->receiver0.playerID, rcpt, recipient.length);
-            header->receiver0.tsn = tsn;
-            break;
-            
-        case 1:
-            strncpy(header->receiver1.playerID, rcpt, recipient.length);
-            header->receiver1.tsn = tsn;
-            break;
-            
-        case 2:
-            strncpy(header->receiver2.playerID, rcpt, recipient.length);
-            header->receiver2.tsn = tsn;
-            break;
-            
-        default:
-            break;
-    }
-}
-
 NS_RETURNS_RETAINED NSString *senderForHeader(ROUChunkHeader header) {
     return [NSString stringWithUTF8String:header.sender.playerID];
 }
@@ -93,6 +56,7 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 }
 @property (nonatomic,strong) NSData *encodedChunk;
 @property (nonatomic,readwrite) ROUChunkHeader header;
+
 @end
 
 @implementation ROUChunk
@@ -109,6 +73,44 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
              NSStringFromClass([self class]),
              NSStringFromSelector(_cmd));
     return nil;
+}
+
+-(void)setSender:(NSString*)sender tsn:(u_int32_t)tsn {
+
+    NSCAssert(sender != nil, @"Sender must be specified");
+    NSCAssert(sender.length <= ROU_PLAYER_SIZE, @"GKCloudPlayerID must be less than %d characters <sender>", ROU_PLAYER_SIZE);
+    
+    const char *sndr = [sender UTF8String];
+    strncpy(_header.sender.playerID, sndr, sender.length+1);
+    _header.sender.tsn = tsn;
+}
+
+-(void)setRecipient:(NSString*)recipient tsn:(u_int32_t)tsn index:(NSUInteger)index {
+    
+    NSCAssert(recipient != nil, @"Recipient must be specified");
+    NSCAssert(recipient.length <= ROU_PLAYER_SIZE, @"GKCloudPlayerID must be less than %d characters <sender>", ROU_PLAYER_SIZE);
+    
+    const char *rcpt = [recipient UTF8String];
+    switch (index) {
+        case 0:
+            strncpy(_header.receiver0.playerID, rcpt, recipient.length+1);
+            _header.receiver0.tsn = tsn;
+            break;
+            
+        case 1:
+            strncpy(_header.receiver1.playerID, rcpt, recipient.length+1);
+            _header.receiver1.tsn = tsn;
+            break;
+            
+        case 2:
+            strncpy(_header.receiver2.playerID, rcpt, recipient.length+1);
+            _header.receiver2.tsn = tsn;
+            break;
+            
+        default:
+            break;
+    }
+
 }
 
 -(NSNumber*)tsnForPlayer:(NSString*)player {

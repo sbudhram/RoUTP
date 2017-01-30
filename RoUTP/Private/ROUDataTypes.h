@@ -69,8 +69,6 @@ typedef struct {
 
 ROUChunkHeader ROUChunkHeaderMake(ROUChunkType type, uint8_t flags, uint16_t length);
 ROUChunkHeader ROUChunkHeaderAddFlag(ROUChunkHeader header, uint8_t flag);
-void setSender(ROUChunkHeader *header, NSString *sender, u_int32_t tsn);
-void setRecipient(ROUChunkHeader *header, NSString *recipient, u_int32_t tsn, u_int8_t index);
 NS_RETURNS_RETAINED NSString *senderForHeader(ROUChunkHeader header);
 
 typedef struct {
@@ -89,6 +87,8 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 +(id)chunkWithEncodedChunk:(NSData *)encodedChunk;
 @property (nonatomic,readonly) ROUChunkHeader header;
 @property (nonatomic,readonly) NSData *encodedChunk;
+-(void)setSender:(NSString*)sender tsn:(u_int32_t)tsn;
+-(void)setRecipient:(NSString*)recipient tsn:(u_int32_t)tsn index:(NSUInteger)index;
 -(NSNumber*)tsnForPlayer:(NSString*)player;
 @end
 

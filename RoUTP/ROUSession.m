@@ -153,16 +153,16 @@
 
     ROUChunkHeader header = chunk.header;
 
-    setSender(&(header), sender, 0);
-
+    [chunk setSender:sender tsn:0];
+    
     for (int i = 0; i < recipients.count; i++) {
         NSString *recipient = recipients[i];
         if (_sendNextTSNpp[recipient] == nil) {
             _sendNextTSNpp[recipient] = @(0);
         }
         
-        setRecipient(&header, recipient, [_sendNextTSNpp[recipient] intValue], i);
-
+        [chunk setRecipient:recipient tsn:[_sendNextTSNpp[recipient] intValue] index:i];
+        
         if (reliable) {
             //Increment the TSN count for this recipient
             _sendNextTSNpp[recipient] = @([_sendNextTSNpp[recipient] intValue] + 1);
@@ -395,8 +395,8 @@
     ROUChunkHeader header = chunk.header;
     
     //Set the TSN for this player, so the receiver can easily verify who it's from.  Ignore TSN on the sender.
-    setSender(&(header), _localPlayer, _rcvNextTSN-1);
-    setRecipient(&(header), _sender, 0, 0);
+    [chunk setSender:_localPlayer tsn:_rcvNextTSN-1];
+    [chunk setRecipient:_sender tsn:0 index:0];
     
     [self.rcvDataChunkIndexSet
      enumerateRangesInRange:
@@ -412,6 +412,10 @@
 #pragma mark └ Ack timer
 -(void)scheduleAckTimer{
     if (nil != self.rcvAckTimer) {
+        return;
+    }
+    //Do not send acknowledgements if this is not a receiving ROUSession object.
+    if (_sender == nil) {
         return;
     }
     self.rcvAckTimer = [ROUSerialQueueTimer

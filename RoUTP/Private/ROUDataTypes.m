@@ -204,7 +204,7 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
 
 +(id)chunk{
     ROUAckChunk *chunk = [self new];
-    ROUChunkHeaderMake(ROUChunkTypeAck, 0, 0);
+    chunk.header = ROUChunkHeaderMake(ROUChunkTypeAck, 0, 0);
     
     return chunk;
 }
@@ -306,15 +306,25 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
         return _encodedChunk;
     }
     ROUChunkHeader header = self.header;
-    NSMutableData *encodedChunk = [NSMutableData dataWithCapacity:header.length];
-    [encodedChunk appendBytes:&header length:ROU_HEADER_SIZE];
-    NSAssert(4 == sizeof(ROUAckSegmentShift), @"ROUAckSegmentShift size should be 4");
+    NSMutableData *segmentData = [NSMutableData dataWithCapacity:100];
     [_segmentsIndexSet enumerateRangesUsingBlock:^(NSRange range, BOOL *stop) {
         ROUAckSegmentShift segment =
             ROUAckSegmentShiftMake(range.location-self.header.sender.tsn,
                                    range.location-self.header.sender.tsn+range.length-1);
-        [encodedChunk appendBytes:&segment length:4];
+        [segmentData appendBytes:&segment length:4];
     }];
+    if (segmentData.length > 0) {
+        header.flags = ROUAckFlagsHasSegments;
+    }
+    header.length = ROU_HEADER_SIZE + segmentData.length;
+
+    NSMutableData *encodedChunk = [NSMutableData dataWithCapacity:header.length];
+    [encodedChunk appendBytes:&header length:ROU_HEADER_SIZE];
+    NSAssert(4 == sizeof(ROUAckSegmentShift), @"ROUAckSegmentShift size should be 4");
+
+    //Encode the segment data
+    [encodedChunk appendBytes:segmentData.bytes length:segmentData.length];
+    
     return encodedChunk;
 }
 

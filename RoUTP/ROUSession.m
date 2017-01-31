@@ -13,6 +13,8 @@
 #error This code needs ARC. Use compiler option -fobjc-arc
 #endif
 
+#define START_TSN   (1)
+
 @implementation ROUSession{
 }
 
@@ -40,7 +42,7 @@
     
     _sendNextTSNpp = [NSMutableDictionary dictionaryWithCapacity:3];
     
-    _rcvNextTSN = 1;
+    _rcvNextTSN = START_TSN;
     _rcvDataChunks = [NSMutableDictionary dictionaryWithCapacity:50];
     _rcvDataChunkIndexSet = [NSMutableIndexSet indexSet];
     _sndDataChunks = [NSMutableDictionary dictionaryWithCapacity:3];
@@ -158,7 +160,7 @@
     for (int i = 0; i < recipients.count; i++) {
         NSString *recipient = recipients[i];
         if (_sendNextTSNpp[recipient] == nil) {
-            _sendNextTSNpp[recipient] = @(0);
+            _sendNextTSNpp[recipient] = @(START_TSN);
         }
         
         [chunk setRecipient:recipient tsn:[_sendNextTSNpp[recipient] intValue] index:i];
@@ -179,7 +181,6 @@
         header.type = ROUChunkUnreliable;
     }
     
-    
     [self sendChunkToTransport:chunk immediately:immediately];
 
 }
@@ -196,6 +197,7 @@
     NSNumber *tsnNum = [ackChunk tsnForPlayer:sender];
     NSAssert(tsnNum != nil, @"TSN for sender cannot be nil");
     uint32_t tsn = [tsnNum intValue];
+    NSLog(@"Received acknowledgement up to: %d", tsn);
     
     [self removeSndDataChunksUpTo:tsn forRecipient:sender];
     [self removeSndDataChunksAtIndexes:ackChunk.segmentsIndexSet forRecipient:sender];
@@ -206,6 +208,8 @@
     for (NSString *key in _sndDataChunkIndexSet) {
         NSMutableIndexSet *sndDataChunkIndexSet = _sndDataChunkIndexSet[key];
         [sndDataChunkIndexSet enumerateIndexesUsingBlock:^(NSUInteger tsn, BOOL *stop){
+            
+            NSLog(@"Resending chunk for player: %@  TSN: %d", key, tsn);
             ROUSndDataChunk *sndChunk = self.sndDataChunks[@(tsn)];
             // resend all that haven't been resent, and those older than the reset timeout
             if ( 0 == sndChunk.resendCount || [nowDate timeIntervalSinceDate:sndChunk.lastSendDate] > self.sndResendTimeout) {
@@ -242,6 +246,7 @@
 
         sndChunks[tsnNum] = chunk;
         [sndChunkIndexSet addIndex:[tsnNum intValue]];
+        NSLog(@"To Player: %@  TSN: %d  Current Index Set: %@", recipient, [tsnNum intValue], sndChunkIndexSet.description);
         
     }
 }
@@ -260,6 +265,7 @@
      enumerateIndexesInRange:range
      options:0
      usingBlock:^(NSUInteger idx, BOOL *stop) {
+         NSLog(@"Removing ack chunk at TSN: %d", idx);
          [sndDataChunks removeObjectForKey:@(idx)];
      }];
     [sndDataChunkIndexSet removeIndexesInRange:range];
@@ -269,6 +275,7 @@
     NSMutableDictionary *sndDataChunks = _sndDataChunks[recipient];
     NSMutableIndexSet *sndDataChunkIndexSet = _sndDataChunkIndexSet[recipient];
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
+        NSLog(@"Removing ack chunk at TSN: %d", idx);
         [sndDataChunks removeObjectForKey:@(idx)];
     }];
     [sndDataChunkIndexSet removeIndexes:indexes];
@@ -291,6 +298,7 @@
                 [self processDataChunk:[ROUDataChunk chunkWithEncodedChunk:encodedChunk]];
                 break;
             case ROUChunkTypeAck:
+                NSLog(@"Session: Processing acknowledgement...");
                 [self processAckChunk:[ROUAckChunk chunkWithEncodedChunk:encodedChunk]];
                 break;
             case ROUChunkUnreliable:
@@ -310,6 +318,8 @@
     NSNumber *tsNum = [chunk tsnForPlayer:_localPlayer];
     NSAssert(tsNum != nil, @"This player must exist as a recipient.");
 
+    NSLog(@"Processing received TSN: %d  From Player: %@", tsNum.intValue, self.sender);
+    
     uint32_t tsn = [tsNum intValue];
     
     if (tsn == _rcvNextTSN) {
@@ -331,6 +341,7 @@
                  tsn<_rcvNextTSN;
                  ++tsn)
             {
+                NSLog(@"Processing previously received chunk: %d", tsn);
                 ROUDataChunk *chunk = self.rcvDataChunks[@(tsn)];
                 [self informDelegateOnReceivedChunk:chunk];
             }
@@ -392,9 +403,8 @@
     //ACK chunks only use the primary TSN, which is relative to the recipient's TSN (not the sender's global TSN, they have to look that up)
     ROUAckChunk *chunk = [ROUAckChunk chunk];
 
-    ROUChunkHeader header = chunk.header;
-    
     //Set the TSN for this player, so the receiver can easily verify who it's from.  Ignore TSN on the sender.
+    NSLog(@"Sending ack for this player (%@), tsn: %d", _localPlayer, _rcvNextTSN-1);
     [chunk setSender:_localPlayer tsn:_rcvNextTSN-1];
     [chunk setRecipient:_sender tsn:0 index:0];
     
@@ -406,6 +416,9 @@
      usingBlock:^(NSRange range, BOOL *stop) {
          [chunk addSegmentWithRange:range];
      }];
+    
+    NSLog(@"Segments to acknowledge: %@", chunk.segmentsIndexSet);
+    
     [self sendChunkToTransport:chunk];
 }
 

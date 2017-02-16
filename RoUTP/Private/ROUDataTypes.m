@@ -218,6 +218,7 @@ bool ROUAckSegmentShiftsEqual(ROUAckSegmentShift segmentShift1,
     
     ROUChunkHeader header;
     [encodedChunk getBytes:&header range:NSMakeRange(0, ROU_HEADER_SIZE)];
+    chunk.header = header;
     
     if (header.flags & ROUAckFlagsHasSegments) {
         NSUInteger currentPosition = ROU_HEADER_SIZE;

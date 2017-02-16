@@ -9,6 +9,8 @@
 #import "ROUSession.h"
 #import "ROUSession_Private.h"
 
+#import <GameKit/GameKit.h>
+
 #if !__has_feature(objc_arc)
 #error This code needs ARC. Use compiler option -fobjc-arc
 #endif
@@ -143,6 +145,7 @@
 -(void)informDelegateOnReceivedChunk:(ROUDataChunk *)chunk{
     if (self.delegate) {
         dispatch_async(self.delegateQueue, ^{
+            ROULog(PLAYER, _localPlayer, @"                            Process: %d", chunk.header.receiver0.tsn);
             [self.delegate session:self receivedData:chunk.data];
         });
     }
@@ -169,6 +172,9 @@
             //Increment the TSN count for this recipient
             _sendNextTSNpp[recipient] = @([_sendNextTSNpp[recipient] intValue] + 1);
         }
+        
+        ROULog(PLAYER, recipient, @"Sending: %d", chunk.header.receiver0.tsn);
+
     }
     
     if (reliable) {
@@ -197,20 +203,36 @@
     NSNumber *tsnNum = [ackChunk tsnForPlayer:sender];
     NSAssert(tsnNum != nil, @"TSN for sender cannot be nil");
     uint32_t tsn = [tsnNum intValue];
-    NSLog(@"Received acknowledgement up to: %d", tsn);
+    
+    
+    NSMutableArray *ints = [NSMutableArray arrayWithCapacity:ackChunk.segmentsIndexSet.count];
+    [ackChunk.segmentsIndexSet enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL * _Nonnull stop) {
+        [ints addObject:@(idx)];
+    }];
+    NSString *result = @"";
+    if (ints.count > 0) {
+        result = [[ints valueForKey:@"description"] componentsJoinedByString:@","];
+        result = [NSString stringWithFormat:@",%@", result];
+    }
+
+    ROULog(PLAYER, sender, @"             Received Ack: %d%@", tsn, result);
+
     
     [self removeSndDataChunksUpTo:tsn forRecipient:sender];
     [self removeSndDataChunksAtIndexes:ackChunk.segmentsIndexSet forRecipient:sender];
+    
+//    NSLog(@"SND CHUNKS: %@", _sndDataChunks.description);
+//    NSLog(@"SND CHUNKS IDXS: %@", _sndDataChunkIndexSet.description);
     
     NSMutableSet *chunksToResend = [NSMutableSet set];
     NSDate *nowDate = [NSDate date];
     
     for (NSString *key in _sndDataChunkIndexSet) {
         NSMutableIndexSet *sndDataChunkIndexSet = _sndDataChunkIndexSet[key];
+        NSMutableDictionary *sndDataChunks = _sndDataChunks[key];
         [sndDataChunkIndexSet enumerateIndexesUsingBlock:^(NSUInteger tsn, BOOL *stop){
             
-            NSLog(@"Resending chunk for player: %@  TSN: %d", key, tsn);
-            ROUSndDataChunk *sndChunk = self.sndDataChunks[@(tsn)];
+            ROUSndDataChunk *sndChunk = sndDataChunks[@(tsn)];
             // resend all that haven't been resent, and those older than the reset timeout
             if ( 0 == sndChunk.resendCount || [nowDate timeIntervalSinceDate:sndChunk.lastSendDate] > self.sndResendTimeout) {
                 [chunksToResend addObject:sndChunk];
@@ -222,6 +244,7 @@
         chunk.resendCount = chunk.resendCount + 1;
         chunk.lastSendDate = [NSDate date];
         // todo: send a group of chunks in one packet?
+        ROULog(PLAYER, [NSString stringWithUTF8String:chunk.header.receiver0.playerID], @"Resending: %d", chunk.header.receiver0.tsn);
         [self sendChunkToTransport:chunk];
     }
 }
@@ -246,7 +269,6 @@
 
         sndChunks[tsnNum] = chunk;
         [sndChunkIndexSet addIndex:[tsnNum intValue]];
-        NSLog(@"To Player: %@  TSN: %d  Current Index Set: %@", recipient, [tsnNum intValue], sndChunkIndexSet.description);
         
     }
 }
@@ -265,7 +287,6 @@
      enumerateIndexesInRange:range
      options:0
      usingBlock:^(NSUInteger idx, BOOL *stop) {
-         NSLog(@"Removing ack chunk at TSN: %d", idx);
          [sndDataChunks removeObjectForKey:@(idx)];
      }];
     [sndDataChunkIndexSet removeIndexesInRange:range];
@@ -275,7 +296,6 @@
     NSMutableDictionary *sndDataChunks = _sndDataChunks[recipient];
     NSMutableIndexSet *sndDataChunkIndexSet = _sndDataChunkIndexSet[recipient];
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
-        NSLog(@"Removing ack chunk at TSN: %d", idx);
         [sndDataChunks removeObjectForKey:@(idx)];
     }];
     [sndDataChunkIndexSet removeIndexes:indexes];
@@ -298,7 +318,6 @@
                 [self processDataChunk:[ROUDataChunk chunkWithEncodedChunk:encodedChunk]];
                 break;
             case ROUChunkTypeAck:
-                NSLog(@"Session: Processing acknowledgement...");
                 [self processAckChunk:[ROUAckChunk chunkWithEncodedChunk:encodedChunk]];
                 break;
             case ROUChunkUnreliable:
@@ -318,10 +337,9 @@
     NSNumber *tsNum = [chunk tsnForPlayer:_localPlayer];
     NSAssert(tsNum != nil, @"This player must exist as a recipient.");
 
-    NSLog(@"Processing received TSN: %d  From Player: %@", tsNum.intValue, self.sender);
-    
     uint32_t tsn = [tsNum intValue];
     
+    ROULog(PLAYER, self.localPlayer, @"Received: %d", tsn);
     if (tsn == _rcvNextTSN) {
         ++_rcvNextTSN;
         [self informDelegateOnReceivedChunk:chunk];
@@ -341,7 +359,6 @@
                  tsn<_rcvNextTSN;
                  ++tsn)
             {
-                NSLog(@"Processing previously received chunk: %d", tsn);
                 ROUDataChunk *chunk = self.rcvDataChunks[@(tsn)];
                 [self informDelegateOnReceivedChunk:chunk];
             }
@@ -370,6 +387,8 @@
             }
             self.rcvMissedPacketsFoundAfterLastPacket = NO;
         }
+    }
+    else {
     }
 }
 
@@ -404,7 +423,6 @@
     ROUAckChunk *chunk = [ROUAckChunk chunk];
 
     //Set the TSN for this player, so the receiver can easily verify who it's from.  Ignore TSN on the sender.
-    NSLog(@"Sending ack for this player (%@), tsn: %d", _localPlayer, _rcvNextTSN-1);
     [chunk setSender:_localPlayer tsn:_rcvNextTSN-1];
     [chunk setRecipient:_sender tsn:0 index:0];
     
@@ -416,8 +434,18 @@
      usingBlock:^(NSRange range, BOOL *stop) {
          [chunk addSegmentWithRange:range];
      }];
-    
-    NSLog(@"Segments to acknowledge: %@", chunk.segmentsIndexSet);
+
+    NSMutableArray *ints = [NSMutableArray arrayWithCapacity:self.rcvDataChunkIndexSet.count];
+    [self.rcvDataChunkIndexSet enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL * _Nonnull stop) {
+        [ints addObject:@(idx)];
+    }];
+    NSString *result = @"";
+    if (ints.count > 0) {
+        result = [[ints valueForKey:@"description"] componentsJoinedByString:@","];
+        result = [NSString stringWithFormat:@",%@", result];
+    }
+    ROULog(PLAYER, _localPlayer, @"             Send Ack: %d%@", _rcvNextTSN-1, result);
+
     
     [self sendChunkToTransport:chunk];
 }

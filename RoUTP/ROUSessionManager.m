@@ -57,8 +57,6 @@ static ROUSessionManager *sharedROUManager = NULL;
 - (void)addRecipient:(NSString*)recipient {
     if (_rouRecipients[recipient] == nil) {
  
-        NSLog(@"Manager: Added new recipient: %@", recipient);
-        
         //These objects are used exclusively to receive data and send back the corresponding acknowledgement receipts
         ROUSession *session = [[ROUSession alloc] initWithLocalPlayer:_localPlayerID sender:recipient];
         [session setDelegate:self];
@@ -73,7 +71,6 @@ static ROUSessionManager *sharedROUManager = NULL;
 }
 
 - (void)sendData:(NSData *)data toRecipients:(NSArray<NSString*>*)recipients reliably:(BOOL)reliable immediately:(BOOL)immediately {
-    NSLog(@"Manager: Sending data to players: %@", recipients.description);
     [_rouSender sendData:data from:_localPlayerID to:recipients reliably:reliable immediately:immediately];
 }
 
@@ -91,7 +88,6 @@ static ROUSessionManager *sharedROUManager = NULL;
             break;
         }
         case ROUChunkTypeAck:
-            NSLog(@"Manager: Did received acknowledgement.  Processing...");
             [_rouSender receiveData:data];
             break;
             
@@ -106,7 +102,6 @@ static ROUSessionManager *sharedROUManager = NULL;
 }
 
 -(void)session:(ROUSession *)session preparedDataForSending:(NSData *)data {
-    NSLog(@"Manager: Sending data: %@", data.description);
     [_delegate manager:self preparedDataForSending:data];
 }
 

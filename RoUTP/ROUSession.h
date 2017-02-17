@@ -10,7 +10,7 @@
 #import "ROUDataTypes.h"
 
 #define PLAYER              @"G:277536228"
-#define ROULog(PLAYER, A, X, ...)    ([A isEqual:PLAYER] ? NSLog(X, ##__VA_ARGS__) : sleep(0) )
+//#define ROULog(PLAYER, A, X, ...)    ([A isEqual:PLAYER] ? NSLog(X, ##__VA_ARGS__) : sleep(0) )
 
 
 @class ROUSession;

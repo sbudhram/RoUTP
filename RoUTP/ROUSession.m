@@ -145,7 +145,6 @@
 -(void)informDelegateOnReceivedChunk:(ROUDataChunk *)chunk{
     if (self.delegate) {
         dispatch_async(self.delegateQueue, ^{
-            ROULog(PLAYER, _localPlayer, @"                            Process: %d", chunk.header.receiver0.tsn);
             [self.delegate session:self receivedData:chunk.data];
         });
     }
@@ -166,6 +165,7 @@
             _sendNextTSNpp[recipient] = @(START_TSN);
         }
         
+        u_int32_t tsn = [_sendNextTSNpp[recipient] intValue];
         [chunk setRecipient:recipient tsn:[_sendNextTSNpp[recipient] intValue] index:i];
         
         if (reliable) {
@@ -173,7 +173,7 @@
             _sendNextTSNpp[recipient] = @([_sendNextTSNpp[recipient] intValue] + 1);
         }
         
-        ROULog(PLAYER, recipient, @"Sending: %d", chunk.header.receiver0.tsn);
+        NSLog(@"%@ -> %@: Sending: %d", sender, recipient, tsn);
 
     }
     
@@ -215,7 +215,7 @@
         result = [NSString stringWithFormat:@",%@", result];
     }
 
-    ROULog(PLAYER, sender, @"             Received Ack: %d%@", tsn, result);
+    NSLog(@"%@ <- %@:             Received Ack: %d%@", _localPlayer, sender, tsn, result);
 
     
     [self removeSndDataChunksUpTo:tsn forRecipient:sender];
@@ -234,7 +234,7 @@
             
             ROUSndDataChunk *sndChunk = sndDataChunks[@(tsn)];
             // resend all that haven't been resent, and those older than the reset timeout
-            if ( 0 == sndChunk.resendCount || [nowDate timeIntervalSinceDate:sndChunk.lastSendDate] > self.sndResendTimeout) {
+            if ( [nowDate timeIntervalSinceDate:sndChunk.lastSendDate] > self.rcvAckTimerInterval) {
                 [chunksToResend addObject:sndChunk];
             }
         }];
@@ -244,7 +244,12 @@
         chunk.resendCount = chunk.resendCount + 1;
         chunk.lastSendDate = [NSDate date];
         // todo: send a group of chunks in one packet?
-        ROULog(PLAYER, [NSString stringWithUTF8String:chunk.header.receiver0.playerID], @"Resending: %d", chunk.header.receiver0.tsn);
+        NSString *receiver0 = [NSString stringWithUTF8String:chunk.header.receiver0.playerID];
+        NSString *receiver1 = [NSString stringWithUTF8String:chunk.header.receiver1.playerID];
+        NSString *receiver2 = [NSString stringWithUTF8String:chunk.header.receiver2.playerID];
+        if (receiver0 && ![receiver0 isEqual:@""]) NSLog(@"%@ -> %@: Resending: %d", _localPlayer, receiver0, chunk.header.receiver0.tsn);
+        if (receiver1 && ![receiver1 isEqual:@""]) NSLog(@"%@ -> %@: Resending: %d", _localPlayer, receiver1, chunk.header.receiver1.tsn);
+        if (receiver2 && ![receiver2 isEqual:@""]) NSLog(@"%@ -> %@: Resending: %d", _localPlayer, receiver2, chunk.header.receiver2.tsn);
         [self sendChunkToTransport:chunk];
     }
 }
@@ -339,10 +344,11 @@
 
     uint32_t tsn = [tsNum intValue];
     
-    ROULog(PLAYER, self.localPlayer, @"Received: %d", tsn);
+    NSLog(@"%@ -> %@: Received: %d", _sender, _localPlayer, tsn);
     if (tsn == _rcvNextTSN) {
         ++_rcvNextTSN;
         [self informDelegateOnReceivedChunk:chunk];
+        NSLog(@"%@ -> %@:                            Process: %d", _sender, _localPlayer, tsn);
         // check if stored chunks are now ready
         if (self.rcvDataChunkIndexSet.count > 0 &&
             self.rcvDataChunkIndexSet.firstIndex == _rcvNextTSN)
@@ -361,6 +367,7 @@
             {
                 ROUDataChunk *chunk = self.rcvDataChunks[@(tsn)];
                 [self informDelegateOnReceivedChunk:chunk];
+                NSLog(@"%@ -> %@:                            Process: %d", _sender, _localPlayer, tsn);
             }
             [self removeRcvDataChunksInRange:readyChunksRange];
         }
@@ -444,7 +451,7 @@
         result = [[ints valueForKey:@"description"] componentsJoinedByString:@","];
         result = [NSString stringWithFormat:@",%@", result];
     }
-    ROULog(PLAYER, _localPlayer, @"             Send Ack: %d%@", _rcvNextTSN-1, result);
+    NSLog(@"%@ <- %@:             Send Ack: %d%@", _sender, _localPlayer, _rcvNextTSN-1, result);
 
     
     [self sendChunkToTransport:chunk];
